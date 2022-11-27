@@ -1,69 +1,84 @@
-#include <igl/boundary_loop.h>
-#include <igl/readOFF.h>
-#include <igl/opengl/glfw/Viewer.h>
+#include "include/parameterization.hpp"
 
-#include <igl/lscm.h>
-#include "linker.h"
+int main(int argc, char** argv){
+    //Mesh Setup
+    string path = OBJECT_PATH + string(argv[1]);
+    igl::read_triangle_mesh(path, V, F);
 
-Eigen::MatrixXd V;
-Eigen::MatrixXi F;
-Eigen::MatrixXd V_uv;
+    //Viewer and Plugin Setup
+    viewer.data().set_mesh(V, F);
+    viewer.plugins.push_back(&plugin);
 
-bool key_down(igl::opengl::glfw::Viewer& viewer, unsigned char key, int modifier)
-{
+    //ImGuizmo Setup
+    plugin.widgets.push_back(&gizmo);
+    gizmo.T.block(0,3,3,1) = 0.5*(V.colwise().maxCoeff() + V.colwise().minCoeff()).transpose().cast<float>();
+    const Eigen::Matrix4f T0 = gizmo.T;
+    gizmo.operation = ImGuizmo::TRANSLATE;
+    gizmo.callback = [&](const Eigen::Matrix4f & T){
+        const Matrix4d TT = (T*T0.inverse()).cast<double>().transpose();
+        viewer.data().set_vertices((V.rowwise().homogeneous()*TT).rowwise().hnormalized());
+        viewer.data().compute_normals();
+    };
 
-  if (key == '1')
-  {
-    // Plot the 3D mesh
-    viewer.data().set_mesh(V,F);
-    viewer.core().align_camera_center(V,F);
-  }
-  else if (key == '2')
-  {
-    // Plot the mesh in 2D using the UV coordinates as vertex coordinates
-    viewer.data().set_mesh(V_uv,F);
-    viewer.core().align_camera_center(V_uv,F);
-  }
+    //ImGui Menu Setup
+    plugin.widgets.push_back(&menu);
 
-  viewer.data().compute_normals();
+    //Workspace for Parameterization techniques
+    vecXi U;
+    Graph graph(V, F);
+    graph.getBoundary(U);
 
-  return false;
-}
+    viewer.callback_key_pressed = [&](decltype(viewer) &,unsigned int key, int mod){
+        switch(key){
+            case '0':{
+                viewer.data().clear();
+                return true;
+            }
+            case '1':{
+                viewer.data().set_mesh(V, F);
+                return true;
+            } case '2': {
+                matXd Vb;
+                //Slice the original mesh to obtain only the boundary vertices
+                igl::slice(V, U, 1, Vb);
+                viewer.data().add_points(Vb, Eigen::RowVector3d(0,1,0));
+                return true;
+            } case '3': {
+                //Visualize the boundary edges
+                matXd Vb;
+                igl::slice(V, U, 1, Vb);
+                matXd Vb2(Vb.rows(), 3);
+                Vb2.bottomRows(Vb.rows() - 1) = Vb.topRows(Vb.rows() - 1);
+                Vb2.row(0) = Vb.row(Vb.rows() - 1);
+                viewer.data().add_edges(Vb, Vb2, Eigen::RowVector3d(1,0,0));
+                return true;
+            } case '4': {
+                //Parameterize the boundary
+                matXd Vb;
+                igl::slice(V, U, 1, Vb);
+                matXd Tb_uniform;
+                auto parameters = getDiscParameters(Vb);
+                getBoundaryDiscParameterization(Vb, Tb_uniform, 3 * get<3>(parameters), 0);
+                matXd Tb_uniform3D;
+                get3DParameterVertices(Tb_uniform, Tb_uniform3D, get<0>(parameters), get<1>(parameters), get<2>(parameters));
+                viewer.data().add_points(Tb_uniform3D, Eigen::RowVector3d(0,1,1));
+                return true;
+            } case '5': {
+                //Parameterize the boundary
+                matXd Vb;
+                igl::slice(V, U, 1, Vb);
+                matXd Tb_chord;
+                auto parameters = getDiscParameters(Vb);
+                getBoundaryDiscParameterization(Vb, Tb_chord, 3 * get<3>(parameters), 1);
+                matXd Tb_chord3D;
+                get3DParameterVertices(Tb_chord, Tb_chord3D, get<0>(parameters), get<1>(parameters), get<2>(parameters));
+                viewer.data().add_points(Tb_chord3D, Eigen::RowVector3d(1,0,0));
+                return true;
+            }
+        }
+        return false;
+    };
 
-int main(int argc, char *argv[])
-{
-  using namespace Eigen;
-  using namespace std;
-
-  // Load a mesh in OFF format
-  igl::readOFF(TUTORIAL_SHARED_PATH "/camelhead.off", V, F);
-
-  // Fix two points on the boundary
-  VectorXi bnd,b(2,1);
-  igl::boundary_loop(F,bnd);
-  b(0) = bnd(0);
-  b(1) = bnd(bnd.size()/2);
-  MatrixXd bc(2,2);
-  bc<<0,0,1,0;
-
-  // LSCM parametrization
-  igl::lscm(V,F,b,bc,V_uv);
-
-  // Scale the uv
-  V_uv *= 5;
-
-  // Plot the mesh
-  igl::opengl::glfw::Viewer viewer;
-  viewer.data().set_mesh(V, F);
-  viewer.data().set_uv(V_uv);
-  viewer.callback_key_down = &key_down;
-
-  // Disable wireframe
-  viewer.data().show_lines = false;
-
-  // Draw checkerboard texture
-  viewer.data().show_texture = true;
-
-  // Launch the viewer
-  viewer.launch();
+    //Launch GUI
+    viewer.launch();
 }

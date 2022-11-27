@@ -1,1 +1,0 @@
-#define TUTORIAL_SHARED_PATH "../assets/objects"
