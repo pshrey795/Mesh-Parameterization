@@ -1,4 +1,4 @@
-#include "include/parameterization.hpp"
+#include "include/graph.hpp"
 
 int main(int argc, char** argv){
     //Mesh Setup
@@ -27,6 +27,12 @@ int main(int argc, char** argv){
     vecXi U;
     Graph graph(V, F);
     graph.getBoundary(U);
+    matXd Vb;
+    // igl::slice(V, U, 1, Vb);
+    Vb.resize(U.rows(), 3);
+    for(int i = 0; i < U.rows(); i++){
+        Vb.row(i) = V.row(U(i));
+    }
 
     viewer.callback_key_pressed = [&](decltype(viewer) &,unsigned int key, int mod){
         switch(key){
@@ -38,15 +44,10 @@ int main(int argc, char** argv){
                 viewer.data().set_mesh(V, F);
                 return true;
             } case '2': {
-                matXd Vb;
-                //Slice the original mesh to obtain only the boundary vertices
-                igl::slice(V, U, 1, Vb);
                 viewer.data().add_points(Vb, Eigen::RowVector3d(0,1,0));
                 return true;
             } case '3': {
                 //Visualize the boundary edges
-                matXd Vb;
-                igl::slice(V, U, 1, Vb);
                 matXd Vb2(Vb.rows(), 3);
                 Vb2.bottomRows(Vb.rows() - 1) = Vb.topRows(Vb.rows() - 1);
                 Vb2.row(0) = Vb.row(Vb.rows() - 1);
@@ -54,25 +55,60 @@ int main(int argc, char** argv){
                 return true;
             } case '4': {
                 //Parameterize the boundary
-                matXd Vb;
-                igl::slice(V, U, 1, Vb);
                 matXd Tb_uniform;
                 auto parameters = getDiscParameters(Vb);
                 getBoundaryDiscParameterization(Vb, Tb_uniform, 3 * get<3>(parameters), 0);
                 matXd Tb_uniform3D;
                 get3DParameterVertices(Tb_uniform, Tb_uniform3D, get<0>(parameters), get<1>(parameters), get<2>(parameters));
                 viewer.data().add_points(Tb_uniform3D, Eigen::RowVector3d(0,1,1));
+                viewer.data().add_edges(Vb, Tb_uniform3D, Eigen::RowVector3d(1,0,0));
                 return true;
             } case '5': {
                 //Parameterize the boundary
-                matXd Vb;
-                igl::slice(V, U, 1, Vb);
                 matXd Tb_chord;
                 auto parameters = getDiscParameters(Vb);
                 getBoundaryDiscParameterization(Vb, Tb_chord, 3 * get<3>(parameters), 1);
                 matXd Tb_chord3D;
                 get3DParameterVertices(Tb_chord, Tb_chord3D, get<0>(parameters), get<1>(parameters), get<2>(parameters));
                 viewer.data().add_points(Tb_chord3D, Eigen::RowVector3d(1,0,0));
+                viewer.data().add_edges(Vb, Tb_chord3D, Eigen::RowVector3d(1,0,0));
+                return true;
+            } case '6': {
+                //Obtain parameterization of internal vertices 
+                matXd Tb_uniform;
+                auto parameters = getDiscParameters(Vb);
+                getBoundaryDiscParameterization(Vb, Tb_uniform, 3 * get<3>(parameters), 0);
+                matXd T_uniform;
+                graph.getInternalParameterization(Tb_uniform, T_uniform, 0);
+                matXd T_uniform3D;
+                get3DParameterVertices(T_uniform, T_uniform3D, get<0>(parameters), get<1>(parameters), get<2>(parameters));
+                matXd V_r, T_r;
+                V_r.resize(10,3);
+                T_r.resize(10,3);
+                for(int i = 0; i < 10; i++){
+                    int k = V.rows() * (rand() / (RAND_MAX + 1.0));
+                    V_r.row(i) = V.row(k);
+                    T_r.row(i) = T_uniform3D.row(k);
+                }
+                viewer.data().add_edges(V_r, T_r, Eigen::RowVector3d(1,0,0));
+                // viewer.data().set_mesh(T_uniform3D, F);
+                // matXd T_uniform_b;
+                // igl::slice(T_uniform3D, U, 1, T_uniform_b);
+                // viewer.data().add_points(T_uniform_b, Eigen::RowVector3d(1,0,0));
+                return true;
+            } case '7': {
+                //Obtain parameterization of internal vertices
+                matXd Tb_chord;
+                auto parameters = getDiscParameters(Vb);
+                getBoundaryDiscParameterization(Vb, Tb_chord, 3 * get<3>(parameters), 1);
+                matXd T_chord;
+                graph.getInternalParameterization(Tb_chord, T_chord, 0);
+                matXd T_chord3D;
+                get3DParameterVertices(T_chord, T_chord3D, get<0>(parameters), get<1>(parameters), get<2>(parameters));
+                viewer.data().set_mesh(T_chord3D, F);
+                // matXd T_uniform_b;
+                // igl::slice(T_chord3D, U, 1, T_uniform_b);
+                // viewer.data().add_points(T_uniform_b, Eigen::RowVector3d(1,0,0));
                 return true;
             }
         }
