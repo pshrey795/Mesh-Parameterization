@@ -57,10 +57,9 @@ class Graph {
         vector<unsigned int> boundaryVertices;
 
         void getInternalParameterization(const matXd& Tb, matXd& T, int method);
-        vector<int> getNeighbours(int i);
+        vector<Edge*> getNeighbours(int i);
 
-    private:
-        double getWeight(int i, int j, int method);
+        double getWeight(Edge* e, int method);
 
 };
 
@@ -229,10 +228,17 @@ void Graph::getInternalParameterization(const matXd& Tb, matXd& T, int method){
     //Debug: Done
     //First identify the indices of the internal vertices
     vector<int> internalVertices;
-    for(unsigned int i = 0; i < vertices.size(); i++){
-        if(!vertices[i]->isBoundary){
-            internalVertices.push_back(i);
+        for(unsigned int i = 0; i < V.rows(); i++){
+            if(!vertices[i]->isBoundary){
+                internalVertices.push_back(i);
+            }
         }
+
+    //Debug: Done
+    //Map for obtaining the index of the internal coordinates for querying the solution matrices
+    unordered_map<int, int> internalMap;
+    for(unsigned int i = 0; i < internalVertices.size(); i++){
+        internalMap[internalVertices[i]] = i;
     }
 
     //Debug: Done
@@ -243,13 +249,8 @@ void Graph::getInternalParameterization(const matXd& Tb, matXd& T, int method){
     }
 
     //Debug: Done
-    //Map for obtaining the index of the internal coordinates for querying the solution matrices
-    unordered_map<int, int> internalMap;
-    for(unsigned int i = 0; i < internalVertices.size(); i++){
-        internalMap[internalVertices[i]] = i;
-    }
-
-    //Debug: Done
+    //To keep the matrix symmetric, in case of Tutte's weights, change diagonal 
+    //entries suitably instead of non-diagonal entries 
     //Preparing the linear system Au = b_u and Av = b_v
     unsigned int n = internalVertices.size();
     //LHS
@@ -265,43 +266,57 @@ void Graph::getInternalParameterization(const matXd& Tb, matXd& T, int method){
     u.setZero(); v.setZero();
     for(unsigned int i = 0; i < n; i++){
         int currentIdx = internalVertices[i];
-        vector<int> neighbors = this->getNeighbours(currentIdx);
+        vector<Edge*> incidentEdges = this->getNeighbours(currentIdx); 
+        vector<int> neighbors;
+        for(unsigned int j = 0; j < incidentEdges.size(); j++){
+            neighbors.push_back(incidentEdges[j]->twin->startVertex->id);
+        }
         int degree = neighbors.size();
-        A(i, i) = 1.0; //Diagonal entries are 1
+        double totalWeight = 0.0; 
         for(unsigned int j = 0; j < degree; j++){
             int neighborIdx = neighbors[j];
-            double weight = this->getWeight(currentIdx, neighborIdx, method);
-            if(true){
-                weight = weight/(double)degree;
-            }
+            double weight = this->getWeight(incidentEdges[j], method);
+            totalWeight += weight;
             if(this->vertices[neighborIdx]->isBoundary){
                 //Boundary vertex, so add contribution to RHS
                 vec2d rhsVal = weight * boundaryMap[neighborIdx];
-                b_u(i) += rhsVal[0];
-                b_v(i) += rhsVal[1];
+                b_u(i) += rhsVal(0);
+                b_v(i) += rhsVal(1);
             }else{
                 //Internal vertex, so add contribution to LHS
                 neighborIdx = internalMap[neighborIdx];
-                A(i, neighborIdx) = (-1.0) * weight;                
+                A(i, neighborIdx) = -weight;                
             }
         }
+        A(i,i) = totalWeight;
     }
 
     //Debug: Done
     //Solving the linear system
-    SparseMatrix<double> A_sparse = A.sparseView();
-    SimplicialLDLT<SparseMatrix<double>> solver;
-    solver.compute(A_sparse);
-    if(solver.info() != Eigen::Success){
-        cout << "Eigen factorization failed!" << endl; 
-    }
-    u = solver.solve(b_u);
-    if(solver.info() != Eigen::Success){
-        cout << "Eigen solve failed for u!" << endl; 
-    }
-    v = solver.solve(b_v);
-    if(solver.info() != Eigen::Success){
-        cout << "Eigen solve failed for v!" << endl; 
+
+    if(method < 2){
+        //Simplicial LDLT requires symmetric A
+        SparseMatrix<double> A_sparse = A.sparseView();
+        SimplicialLDLT<SparseMatrix<double>> solver;
+        solver.compute(A_sparse);
+        if(solver.info() != Eigen::Success){
+            cout << "Eigen factorization failed!" << endl; 
+        }
+        u = solver.solve(b_u);
+        if(solver.info() != Eigen::Success){
+            cout << "Eigen solve failed for u!" << endl; 
+        }
+        v = solver.solve(b_v);
+        if(solver.info() != Eigen::Success){
+            cout << "Eigen solve failed for v!" << endl; 
+        }
+    }else{
+        //Mean Value coordinates produce an unsymmetric matrix
+        //Linear solver for unsymmetric matrix
+        //Solve using LU decomposition
+        FullPivLU<matXd> solver(A);
+        u = solver.solve(b_u);
+        v = solver.solve(b_v);
     }
 
     //Debug: Done
@@ -312,32 +327,67 @@ void Graph::getInternalParameterization(const matXd& Tb, matXd& T, int method){
             T.row(i) = boundaryMap[i];
         }else{
             int idx = internalMap[i];
-            T(i, 0) = u(idx);
-            T(i, 1) = v(idx);
+            T.row(i) = vec2d(u(idx), v(idx)).transpose();
         }
     }
 }
 
-double Graph::getWeight(int i, int j, int method){
+double Graph::getWeight(Edge* e, int method){
     if(method == 0){
         //Uniform weights
         return 1.0;
     }else if(method == 1){
-        return 1.0;
+        //Harmonic weights
+        //Alpha
+        Edge* currentEdge = e;
+        vec3d v1 = currentEdge->startVertex->pos;
+        vec3d v2 = currentEdge->next->startVertex->pos;
+        vec3d v3 = currentEdge->prev->startVertex->pos;
+        vec3d v13 = (v1 - v3).normalized();
+        vec3d v23 = (v2 - v3).normalized();
+        double cosAlpha = v13.dot(v23);
+        double cotAlpha = cosAlpha / sqrt(1 - cosAlpha * cosAlpha);
+
+        //Beta
+        vec3d v4 = currentEdge->twin->prev->startVertex->pos;
+        vec3d v14 = (v1 - v4).normalized();
+        vec3d v24 = (v2 - v4).normalized();
+        double cosBeta = v14.dot(v24);
+        double cotBeta = cosBeta / sqrt(1 - cosBeta * cosBeta);
+
+        return 0.5 * (cotAlpha + cotBeta);
     }else{
-        return 1.0;
+        //Mean Value weights
+        //Gamma
+        Edge* currentEdge = e;
+        vec3d v1 = currentEdge->startVertex->pos;
+        vec3d v2 = currentEdge->next->startVertex->pos;
+        vec3d v3 = currentEdge->prev->startVertex->pos;
+        vec3d v31 = (v3 - v1).normalized();
+        vec3d v21 = (v2 - v1).normalized();
+        double cosGamma = v31.dot(v21);
+        double tanGammaBy2 = sqrt((1 - cosGamma)/(1 + cosGamma));
+
+        //Delta
+        vec3d v4 = currentEdge->twin->prev->startVertex->pos;
+        vec3d v41 = (v4 - v1).normalized();
+        double cosDelta = v41.dot(v21);
+        double tanDeltaBy2 = sqrt((1 - cosDelta)/(1 + cosDelta));
+
+        double rij = (v1 - v2).norm();
+
+        return (tanGammaBy2 + tanDeltaBy2 + EPSILON) / (rij + EPSILON);
     }
 }
 
-//Debug: done
-vector<int> Graph::getNeighbours(int i){
-    vector<int> res;
+vector<Edge*> Graph::getNeighbours(int i){
+    vector<Edge*> res;
     Edge* currentEdge = this->vertices[i]->edge;
-    res.push_back(currentEdge->twin->startVertex->id);
+    res.push_back(currentEdge);
     if(currentEdge->prev != NULL){
         Edge* nextRightEdge = currentEdge->prev->twin;
         while(nextRightEdge != currentEdge){
-            res.push_back(nextRightEdge->twin->startVertex->id);
+            res.push_back(nextRightEdge);
             if(nextRightEdge->prev != NULL){
                 nextRightEdge = nextRightEdge->prev->twin;
             }else{
@@ -347,7 +397,7 @@ vector<int> Graph::getNeighbours(int i){
         if(nextRightEdge != currentEdge){
             Edge* nextLeftEdge = currentEdge->twin->next;
             while(nextLeftEdge != NULL){
-                res.push_back(nextLeftEdge->twin->startVertex->id);
+                res.push_back(nextLeftEdge);
                 nextLeftEdge = nextLeftEdge->twin->next;
             }
         }
@@ -356,7 +406,7 @@ vector<int> Graph::getNeighbours(int i){
         if(nextLeftEdge != NULL){
             while(nextLeftEdge != currentEdge){
                 if(nextLeftEdge != NULL){
-                    res.push_back(nextLeftEdge->twin->startVertex->id);
+                    res.push_back(nextLeftEdge);
                     nextLeftEdge = nextLeftEdge->twin->next;
                 }else{
                     break;

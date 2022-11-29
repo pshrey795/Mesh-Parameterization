@@ -24,6 +24,7 @@ typedef Vector2d vec2d;
 typedef Vector3d vec3d;
 
 #define OBJECT_PATH "../assets/objects/"
+#define EPSILON 0.01
 
 //Global Variables
 //Mesh

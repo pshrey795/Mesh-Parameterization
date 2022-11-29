@@ -4,6 +4,26 @@ int main(int argc, char** argv){
     //Mesh Setup
     string path = OBJECT_PATH + string(argv[1]);
     igl::read_triangle_mesh(path, V, F);
+//     V= (Eigen::MatrixXd(8,3)<<
+//     0.0,0.0,0.0,
+//     0.0,0.0,1.0,
+//     0.0,1.0,0.0,
+//     0.0,1.0,1.0,
+//     1.0,0.0,0.0,
+//     1.0,0.0,1.0,
+//     1.0,1.0,0.0,
+//     1.0,1.0,1.0).finished();
+//   const Eigen::MatrixXi F = (Eigen::MatrixXi(10,3)<<
+//     0,6,4,
+//     0,2,6,
+//     0,3,2,
+//     0,1,3,
+//     2,7,6,
+//     2,3,7,
+//     4,6,7,
+//     4,7,5,
+//     1,5,7,
+//     1,7,3).finished();
 
     //Viewer and Plugin Setup
     viewer.data().set_mesh(V, F);
@@ -28,7 +48,6 @@ int main(int argc, char** argv){
     Graph graph(V, F);
     graph.getBoundary(U);
     matXd Vb;
-    // igl::slice(V, U, 1, Vb);
     Vb.resize(U.rows(), 3);
     for(int i = 0; i < U.rows(); i++){
         Vb.row(i) = V.row(U(i));
@@ -57,7 +76,7 @@ int main(int argc, char** argv){
                 //Parameterize the boundary
                 matXd Tb_uniform;
                 auto parameters = getDiscParameters(Vb);
-                getBoundaryDiscParameterization(Vb, Tb_uniform, 3 * get<3>(parameters), 0);
+                getBoundaryDiscParameterization(Vb, Tb_uniform, 6 * get<3>(parameters), 0);
                 matXd Tb_uniform3D;
                 get3DParameterVertices(Tb_uniform, Tb_uniform3D, get<0>(parameters), get<1>(parameters), get<2>(parameters));
                 viewer.data().add_points(Tb_uniform3D, Eigen::RowVector3d(0,1,1));
@@ -67,48 +86,63 @@ int main(int argc, char** argv){
                 //Parameterize the boundary
                 matXd Tb_chord;
                 auto parameters = getDiscParameters(Vb);
-                getBoundaryDiscParameterization(Vb, Tb_chord, 3 * get<3>(parameters), 1);
+                getBoundaryDiscParameterization(Vb, Tb_chord, 6 * get<3>(parameters), 1);
                 matXd Tb_chord3D;
                 get3DParameterVertices(Tb_chord, Tb_chord3D, get<0>(parameters), get<1>(parameters), get<2>(parameters));
                 viewer.data().add_points(Tb_chord3D, Eigen::RowVector3d(1,0,0));
                 viewer.data().add_edges(Vb, Tb_chord3D, Eigen::RowVector3d(1,0,0));
                 return true;
             } case '6': {
-                //Obtain parameterization of internal vertices 
                 matXd Tb_uniform;
                 auto parameters = getDiscParameters(Vb);
-                getBoundaryDiscParameterization(Vb, Tb_uniform, 3 * get<3>(parameters), 0);
-                matXd T_uniform;
-                graph.getInternalParameterization(Tb_uniform, T_uniform, 0);
-                matXd T_uniform3D;
-                get3DParameterVertices(T_uniform, T_uniform3D, get<0>(parameters), get<1>(parameters), get<2>(parameters));
-                matXd V_r, T_r;
-                V_r.resize(10,3);
-                T_r.resize(10,3);
-                for(int i = 0; i < 10; i++){
-                    int k = V.rows() * (rand() / (RAND_MAX + 1.0));
-                    V_r.row(i) = V.row(k);
-                    T_r.row(i) = T_uniform3D.row(k);
-                }
-                viewer.data().add_edges(V_r, T_r, Eigen::RowVector3d(1,0,0));
-                // viewer.data().set_mesh(T_uniform3D, F);
-                // matXd T_uniform_b;
-                // igl::slice(T_uniform3D, U, 1, T_uniform_b);
-                // viewer.data().add_points(T_uniform_b, Eigen::RowVector3d(1,0,0));
+                getBoundaryDiscParameterization(Vb, Tb_uniform, 6 * get<3>(parameters), 0);
+
+                matXd T;
+                graph.getInternalParameterization(Tb_uniform, T, 0);
+
+                matXd T3D;
+                get3DParameterVertices(T, T3D, get<0>(parameters), get<1>(parameters), get<2>(parameters));
+
+                viewer.data().set_mesh(T3D, F);
                 return true;
             } case '7': {
-                //Obtain parameterization of internal vertices
                 matXd Tb_chord;
                 auto parameters = getDiscParameters(Vb);
-                getBoundaryDiscParameterization(Vb, Tb_chord, 3 * get<3>(parameters), 1);
-                matXd T_chord;
-                graph.getInternalParameterization(Tb_chord, T_chord, 0);
-                matXd T_chord3D;
-                get3DParameterVertices(T_chord, T_chord3D, get<0>(parameters), get<1>(parameters), get<2>(parameters));
-                viewer.data().set_mesh(T_chord3D, F);
-                // matXd T_uniform_b;
-                // igl::slice(T_chord3D, U, 1, T_uniform_b);
-                // viewer.data().add_points(T_uniform_b, Eigen::RowVector3d(1,0,0));
+                getBoundaryDiscParameterization(Vb, Tb_chord, 6 * get<3>(parameters), 1);
+
+                matXd T;
+                graph.getInternalParameterization(Tb_chord, T, 0);
+
+                matXd T3D;
+                get3DParameterVertices(T, T3D, get<0>(parameters), get<1>(parameters), get<2>(parameters));
+
+                viewer.data().set_mesh(T3D, F);
+                return true;
+            } case '8': {
+                matXd Tb_chord;
+                auto parameters = getDiscParameters(Vb);
+                getBoundaryDiscParameterization(Vb, Tb_chord, 6 * get<3>(parameters), 1);
+
+                matXd T;
+                graph.getInternalParameterization(Tb_chord, T, 1);
+
+                matXd T3D;
+                get3DParameterVertices(T, T3D, get<0>(parameters), get<1>(parameters), get<2>(parameters));
+
+                viewer.data().set_mesh(T3D, F);
+                return true;
+            } case '9': {
+                matXd Tb_chord;
+                auto parameters = getDiscParameters(Vb);
+                getBoundaryDiscParameterization(Vb, Tb_chord, 6 * get<3>(parameters), 1);
+
+                matXd T;
+                graph.getInternalParameterization(Tb_chord, T, 2);
+
+                matXd T3D;
+                get3DParameterVertices(T, T3D, get<0>(parameters), get<1>(parameters), get<2>(parameters));
+
+                viewer.data().set_mesh(T3D, F);
                 return true;
             }
         }
