@@ -56,13 +56,16 @@ int main(int argc, char** argv){
     viewer.callback_key_pressed = [&](decltype(viewer) &,unsigned int key, int mod){
         switch(key){
             case '0':{
+                //Clear Data
                 viewer.data().clear();
                 return true;
             }
             case '1':{
+                //Original Mesh
                 viewer.data().set_mesh(V, F);
                 return true;
             } case '2': {
+                //Boundary Points
                 viewer.data().add_points(Vb, Eigen::RowVector3d(0,1,0));
                 return true;
             } case '3': {
@@ -73,7 +76,7 @@ int main(int argc, char** argv){
                 viewer.data().add_edges(Vb, Vb2, Eigen::RowVector3d(1,0,0));
                 return true;
             } case '4': {
-                //Parameterize the boundary
+                //Uniform Parameterization for Boundary
                 matXd Tb_uniform;
                 auto parameters = getDiscParameters(Vb);
                 getBoundaryDiscParameterization(Vb, Tb_uniform, 6 * get<3>(parameters), 0);
@@ -83,7 +86,7 @@ int main(int argc, char** argv){
                 viewer.data().add_edges(Vb, Tb_uniform3D, Eigen::RowVector3d(1,0,0));
                 return true;
             } case '5': {
-                //Parameterize the boundary
+                //Chord Length Parameterization for Boundary
                 matXd Tb_chord;
                 auto parameters = getDiscParameters(Vb);
                 getBoundaryDiscParameterization(Vb, Tb_chord, 6 * get<3>(parameters), 1);
@@ -93,6 +96,7 @@ int main(int argc, char** argv){
                 viewer.data().add_edges(Vb, Tb_chord3D, Eigen::RowVector3d(1,0,0));
                 return true;
             } case '6': {
+                //Tutte's embedding with uniform parameterization for boundary
                 matXd Tb_uniform;
                 auto parameters = getDiscParameters(Vb);
                 getBoundaryDiscParameterization(Vb, Tb_uniform, 6 * get<3>(parameters), 0);
@@ -106,6 +110,7 @@ int main(int argc, char** argv){
                 viewer.data().set_mesh(T3D, F);
                 return true;
             } case '7': {
+                //Tutte's embedding with chord length parameterization for boundary
                 matXd Tb_chord;
                 auto parameters = getDiscParameters(Vb);
                 getBoundaryDiscParameterization(Vb, Tb_chord, 6 * get<3>(parameters), 1);
@@ -119,6 +124,7 @@ int main(int argc, char** argv){
                 viewer.data().set_mesh(T3D, F);
                 return true;
             } case '8': {
+                //Harmonic parameterization with chord length parameterization for boundary
                 matXd Tb_chord;
                 auto parameters = getDiscParameters(Vb);
                 getBoundaryDiscParameterization(Vb, Tb_chord, 6 * get<3>(parameters), 1);
@@ -132,6 +138,7 @@ int main(int argc, char** argv){
                 viewer.data().set_mesh(T3D, F);
                 return true;
             } case '9': {
+                //Mean Value parameterization with chord length parameterization for boundary
                 matXd Tb_chord;
                 auto parameters = getDiscParameters(Vb);
                 getBoundaryDiscParameterization(Vb, Tb_chord, 6 * get<3>(parameters), 1);
@@ -144,6 +151,11 @@ int main(int argc, char** argv){
 
                 viewer.data().set_mesh(T3D, F);
                 return true;
+            } case 'z': {
+                //LSCM Parameterization
+                matXd T; 
+                getLSCMParameterization(V, F, T, 2);
+                return true; 
             }
         }
         return false;

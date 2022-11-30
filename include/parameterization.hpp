@@ -62,3 +62,156 @@ tuple<vec3d, vec3d, vec3d, double> getDiscParameters(const matXd &V){
     vec3d y_axis = normal.cross(x_axis);
     return make_tuple(centre, x_axis.normalized(), y_axis.normalized(), radius);
 }
+
+vector<int> getPinnedPoints(const matXd &V){
+    double maxDist = 0.0f;
+    pair<int, int> farthestPair; 
+    for(int i = 0; i < V.rows(); i++){
+        for(int j = i + 1; j < V.rows(); j++){
+            double currentDist = (V.row(i) - V.row(j)).norm();
+            if(currentDist > maxDist){
+                maxDist = currentDist;
+                farthestPair = make_pair(i, j);
+            }
+        }
+    } 
+    vector<int> v = {farthestPair.first, farthestPair.second};
+    return v;
+}
+
+void fillMatrix(matXd &A, matXd &B, int vertexIdx, int faceIdx, int faceSz, int vertexSz, int pinnedSz, double Wr, double Wi, const vector<int> &pinnedPoints, const unordered_map<int, int> &pinnedPointsMap, const unordered_map<int, int> &effectiveIndexMap){
+    int i = faceIdx;
+    int j = vertexIdx;
+    int n_dash = faceSz;
+    int n = vertexSz;
+    int p = pinnedSz;
+
+    if(pinnedPointsMap.find(j) == pinnedPointsMap.end()){
+        //Free vertex, so contributions will be added to LHS i.e. A
+        //Entries (i,j'), (n' + i, j'), (i, n - p + j'), (n' + i, n - p + j') will be modified
+        //where j' = Effective index of current vertex after subtracting the number of pinned points 
+        //whose index is less than j
+        j = effectiveIndexMap.at(j);
+        A(i, j) = Wr; A(i + n_dash, j + n - p) = Wr;
+        A(i, j + n - p) = -Wi; A(i + n_dash, j) = Wi;
+    }else{
+        //Pinned vertex, so contributions will be added to RHS i.e. B
+        //Entries (i,j'), (n' + i, j'), (i, p + j'), (n' + i, p + j') will be modified
+        //where j' = pinnedPointsMap[j]
+        j = pinnedPointsMap.at(j);
+        B(i, j) = Wr; B(i + n_dash, j + p) = Wr;
+        B(i, j + p) = -Wi; B(i + n_dash, j) = Wi;
+    }
+}
+
+//LSCM(Least Sqaures Conformal Mapping) Parameterization [Levy et al. 2002]
+void getLSCMParameterization(const matXd &V, const matXi& F, matXd& T, int numPinnedPoints){ 
+    int n_dash = F.rows();
+    int n = V.rows();
+
+    //Fix two points
+    vector<int> pinnedPoints = getPinnedPoints(V);
+    int p = pinnedPoints.size();
+
+    //We design getPinnedPoints in such a way that the points are already sorted
+    //in order in which they also appear in the vertex list
+    //So,  i < j <=> pinnedPoints[i] < pinnedPoints[j] 
+
+    //Map for pinned points to obtain their indices and for fast search of free points
+    unordered_map<int, int> pinnedPointsMap;
+    for(int i = 0; i < p; i++){
+        pinnedPointsMap[pinnedPoints[i]] = i;
+    }
+
+    //Map for effective indices of free points
+    unordered_map<int, int> effectiveIndexMap;
+    int i, j;
+    i = j = 0;
+    while(i < n){
+        if(pinnedPointsMap.find(i) == pinnedPointsMap.end()){
+            if(i > pinnedPoints[j]){
+                j++;
+            }
+            effectiveIndexMap[i] = i - j;   
+        }
+        i++;
+    }
+
+    //Solution matrices
+    matXd A(2 * n_dash, 2 * (n - p)); A.setZero();
+    matXd B(2 * n_dash, 2 * p); B.setZero();
+    vecXd b; b.setZero(2 * n_dash);
+
+    //Optimization for each face 
+    for(unsigned int i = 0; i < n_dash; i++){
+        //Obtain the coordinates of vertices in local coordinate space of triangle 
+        //3D coordinates of vertices
+        vec3d v0 = V.row(F(i, 0)).transpose();
+        vec3d v1 = V.row(F(i, 1)).transpose();
+        vec3d v2 = V.row(F(i, 2)).transpose();
+
+        //Local coordinates of vertices
+        double x0, y0, x1, y1, x2, y2;
+        double s = (v1 - v0).norm();
+        double t = (v2 - v0).norm();
+        double cosine = (v1 - v0).dot(v2 - v0) / (s * t);
+
+        //The actual choice of (x,y) doesn't matter as long as the lengths are angles are consistent
+        x0 = y0 = 0.0f;
+        x1 = s; y1 = 0.0f;
+        x2 = t * cosine; y2 = t * sqrt(1 - cosine * cosine); 
+
+        //From the area of the triangle
+        double root_dT = sqrt((v1 - v0).cross(v2 - v0).norm());
+
+        //Obtaining the weights
+        //We represent the weights as (Wr^T Wi^T)^T instead of (W1 W2 W3) to split into real and imaginary parts
+        //Wr = [W0r W1r W2r] and Wi = [W0i W1i W2i]
+        double Wr0, Wr1, Wr2, Wi0, Wi1, Wi2;
+        Wr0 = (x2 - x1) / root_dT; Wi0 = (y2 - y1) / root_dT;
+        Wr1 = (x0 - x2) / root_dT; Wi1 = (y0 - y2) / root_dT;
+        Wr2 = (x1 - x0) / root_dT; Wi2 = (y1 - y0) / root_dT;
+
+        //Filling the solution matrices
+        //Vertex 0
+        fillMatrix(A, B, F(i,0), i, n_dash, n, p, Wr0, Wi0, pinnedPoints, pinnedPointsMap, effectiveIndexMap);
+        //Vertex 1
+        fillMatrix(A, B, F(i,1), i, n_dash, n, p, Wr1, Wi1, pinnedPoints, pinnedPointsMap, effectiveIndexMap);
+        //Vertex 2
+        fillMatrix(A, B, F(i,2), i, n_dash, n, p, Wr2, Wi2, pinnedPoints, pinnedPointsMap, effectiveIndexMap);
+    }
+
+    //Solution matrices Uf(free) and Up(pinned)
+    //Note that solution vectors will be in interleaved form
+    //All reals(u) followed by all imaginaries(v)
+
+    //Solution for pinned points
+    vecXd Up(2 * p);
+    //Require only four points since we have two pinned points
+    //We pin the points to (0,0) and (1,1)
+    //More general algorithm pending
+    Up << 0.0f, 1.0f, 0.0f, 1.0f;
+
+    //Solution for free points
+    b = -B * Up;
+
+    //Solving the linear system
+    SparseMatrix<double> A_sparse = A.sparseView();
+    LeastSquaresConjugateGradient<SparseMatrix<double>> solver;
+    solver.compute(A_sparse);
+    matXd Uf = solver.solve(b);
+
+    //Accumulating the solution
+    T.resize(n, 2);
+    for(int i = 0; i < n; i++){
+        if(pinnedPointsMap.find(i) == pinnedPointsMap.end()){
+            //Free vertex
+            int j = effectiveIndexMap.at(i);
+            T.row(i) = vec2d(Uf(j), Uf(j + n - p)); 
+        }else{
+            //Pinned vertex
+            int j = pinnedPointsMap.at(i);
+            T.row(i) = vec2d(Up(j), Up(j + p));
+        }
+    }
+}
