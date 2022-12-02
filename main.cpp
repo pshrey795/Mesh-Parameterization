@@ -79,7 +79,7 @@ int main(int argc, char** argv){
                 //Uniform Parameterization for Boundary
                 matXd Tb_uniform;
                 auto parameters = getDiscParameters(Vb);
-                getBoundaryDiscParameterization(Vb, Tb_uniform, 6 * get<3>(parameters), 0);
+                getBoundaryDiscParameterization(Vb, Tb_uniform, 3 * get<3>(parameters), 0);
                 matXd Tb_uniform3D;
                 get3DParameterVertices(Tb_uniform, Tb_uniform3D, get<0>(parameters), get<1>(parameters), get<2>(parameters));
                 viewer.data().add_points(Tb_uniform3D, Eigen::RowVector3d(0,1,1));
@@ -89,10 +89,10 @@ int main(int argc, char** argv){
                 //Chord Length Parameterization for Boundary
                 matXd Tb_chord;
                 auto parameters = getDiscParameters(Vb);
-                getBoundaryDiscParameterization(Vb, Tb_chord, 6 * get<3>(parameters), 1);
+                getBoundaryDiscParameterization(Vb, Tb_chord, 3 * get<3>(parameters), 1);
                 matXd Tb_chord3D;
                 get3DParameterVertices(Tb_chord, Tb_chord3D, get<0>(parameters), get<1>(parameters), get<2>(parameters));
-                viewer.data().add_points(Tb_chord3D, Eigen::RowVector3d(1,0,0));
+                viewer.data().add_points(Tb_chord3D, Eigen::RowVector3d(0,1,1));
                 viewer.data().add_edges(Vb, Tb_chord3D, Eigen::RowVector3d(1,0,0));
                 return true;
             } case '6': {
@@ -121,6 +121,9 @@ int main(int argc, char** argv){
                 matXd T3D;
                 get3DParameterVertices(T, T3D, get<0>(parameters), get<1>(parameters), get<2>(parameters));
 
+                double distortion = getDistortion(V, T, F);
+                cout << distortion << endl; 
+
                 viewer.data().set_mesh(T3D, F);
                 return true;
             } case '8': {
@@ -134,6 +137,9 @@ int main(int argc, char** argv){
 
                 matXd T3D;
                 get3DParameterVertices(T, T3D, get<0>(parameters), get<1>(parameters), get<2>(parameters));
+
+                double distortion = getDistortion(V, T, F);
+                cout << distortion << endl;
 
                 viewer.data().set_mesh(T3D, F);
                 return true;
@@ -149,12 +155,24 @@ int main(int argc, char** argv){
                 matXd T3D;
                 get3DParameterVertices(T, T3D, get<0>(parameters), get<1>(parameters), get<2>(parameters));
 
+                double distortion = getDistortion(V, T, F);
+                cout << distortion << endl;
+
                 viewer.data().set_mesh(T3D, F);
                 return true;
             } case 'z': {
                 //LSCM Parameterization
                 matXd T; 
-                getLSCMParameterization(V, F, T, 2);
+                getLSCMParameterization(V, U, F, T, 2);
+                matXd T3D(T.rows(), 3);
+                for(unsigned int i = 0; i < T.rows(); i++){
+                    T3D.row(i) = vec3d(T(i, 0), T(i, 1), 0);
+                }
+
+                double distortion = getDistortion(V, T, F);
+                cout << distortion << endl;
+
+                viewer.data().set_mesh(T3D, F);
                 return true; 
             }
         }

@@ -63,20 +63,36 @@ tuple<vec3d, vec3d, vec3d, double> getDiscParameters(const matXd &V){
     return make_tuple(centre, x_axis.normalized(), y_axis.normalized(), radius);
 }
 
-vector<int> getPinnedPoints(const matXd &V){
-    double maxDist = 0.0f;
-    pair<int, int> farthestPair; 
-    for(int i = 0; i < V.rows(); i++){
-        for(int j = i + 1; j < V.rows(); j++){
-            double currentDist = (V.row(i) - V.row(j)).norm();
-            if(currentDist > maxDist){
-                maxDist = currentDist;
-                farthestPair = make_pair(i, j);
+vector<int> getPinnedPoints(const matXd &V, const vecXi &U, int mode){
+    if(mode){
+        double maxDist = 0.0f;
+        pair<int, int> farthestPair; 
+        for(int i = 0; i < U.rows(); i++){
+            for(int j = i + 1; j < U.rows(); j++){
+                double currentDist = (V.row(U(i)) - V.row(U(j))).norm();
+                if(currentDist > maxDist){
+                    maxDist = currentDist;
+                    farthestPair = make_pair(U(i), U(j));
+                }
             }
-        }
-    } 
-    vector<int> v = {farthestPair.first, farthestPair.second};
-    return v;
+        } 
+        vector<int> v = {farthestPair.first, farthestPair.second};
+        return v;
+    }else{
+        double maxDist = 0.0f;
+        pair<int, int> farthestPair; 
+        for(int i = 0; i < V.rows(); i++){
+            for(int j = i + 1; j < V.rows(); j++){
+                double currentDist = (V.row(i) - V.row(j)).norm();
+                if(currentDist > maxDist){
+                    maxDist = currentDist;
+                    farthestPair = make_pair(i, j);
+                }
+            }
+        } 
+        vector<int> v = {farthestPair.first, farthestPair.second};
+        return v;
+    }
 }
 
 void fillMatrix(matXd &A, matXd &B, int vertexIdx, int faceIdx, int faceSz, int vertexSz, int pinnedSz, double Wr, double Wi, const vector<int> &pinnedPoints, const unordered_map<int, int> &pinnedPointsMap, const unordered_map<int, int> &effectiveIndexMap){
@@ -105,12 +121,13 @@ void fillMatrix(matXd &A, matXd &B, int vertexIdx, int faceIdx, int faceSz, int 
 }
 
 //LSCM(Least Sqaures Conformal Mapping) Parameterization [Levy et al. 2002]
-void getLSCMParameterization(const matXd &V, const matXi& F, matXd& T, int numPinnedPoints){ 
+void getLSCMParameterization(const matXd &V, const vecXi &U, const matXi& F, matXd& T, int numPinnedPoints){ 
     int n_dash = F.rows();
     int n = V.rows();
 
-    //Fix two points
-    vector<int> pinnedPoints = getPinnedPoints(V);
+    //Fix points
+    //We fix on the boundary to avoid triangle flips
+    vector<int> pinnedPoints = getPinnedPoints(V, U, 0);
     int p = pinnedPoints.size();
 
     //We design getPinnedPoints in such a way that the points are already sorted
@@ -188,7 +205,7 @@ void getLSCMParameterization(const matXd &V, const matXi& F, matXd& T, int numPi
     //Solution for pinned points
     vecXd Up(2 * p);
     //Require only four points since we have two pinned points
-    //We pin the points to (0,0) and (1,1)
+    //We pin the points to (-1,-1) and (1,1)
     //More general algorithm pending
     Up << 0.0f, 1.0f, 0.0f, 1.0f;
 
@@ -214,4 +231,72 @@ void getLSCMParameterization(const matXd &V, const matXi& F, matXd& T, int numPi
             T.row(i) = vec2d(Up(j), Up(j + p));
         }
     }
+}
+
+double calculateEnergy(double sigma1, double sigma2, int type){
+    if(type == 0){
+        //Conformal Energy 
+        double diff = sigma1 - sigma2;
+        return 0.5 * diff * diff; 
+    }else if(type == 1){
+        //MIPS Energy 
+        double div = sigma1 / sigma2;
+        return (div + 1.0 / div);
+    }
+}
+
+double getDistortion(const matXd &V, const matXd &T, const matXi &F){
+    double totalDistortion = 0.0f;
+    double totalArea = 0.0f; 
+    //Iterate over all triangles
+    for(unsigned int i = 0; i < F.rows(); i++){
+        vec3d v0 = V.row(F(i, 0)).transpose();
+        vec3d v1 = V.row(F(i, 1)).transpose();
+        vec3d v2 = V.row(F(i, 2)).transpose();
+        vec2d t0 = T.row(F(i, 0)).transpose();
+        vec2d t1 = T.row(F(i, 1)).transpose();
+        vec2d t2 = T.row(F(i, 2)).transpose();
+
+        //Calculate distortion at the centroid of the triangle 
+        vec3d v = (v0 + v1 + v2) / 3.0f;
+        vec2d t = (t0 + t1 + t2) / 3.0f;
+
+        //Calculate derivatives at centroid as the average of derivatives with respect to the vertices
+        matXd Jt(2,3);
+        //Derivative with respect to t0 = u
+        vec3d dvdt0; dvdt0 << 0.0f, 0.0f, 0.0f;
+        dvdt0 += (v - v0) / (t[0] - v0[0]);
+        dvdt0 += (v - v1) / (t[0] - v1[0]);
+        dvdt0 += (v - v2) / (t[0] - v2[0]);
+        dvdt0 = dvdt0 / 3.0f;
+        //Derivative with respect to t1 = v
+        vec3d dvdt1; dvdt1 << 0.0f, 0.0f, 0.0f;
+        dvdt1 += (v - v0) / (t[1] - v0[1]);
+        dvdt1 += (v - v1) / (t[1] - v1[1]);
+        dvdt1 += (v - v2) / (t[1] - v2[1]);
+        dvdt1 = dvdt1 / 3.0f;
+        //Assembling the Jacobian
+        Jt.row(0) = dvdt0.transpose();
+        Jt.row(1) = dvdt1.transpose();
+        
+        //The first fundamental form (size 2 x 2)
+        matXd E = Jt * Jt.transpose();
+
+        //Elements of E
+        double a = E(0,0);
+        double b = E(0,1);
+        double c = E(1,1);
+
+        //Calculating the singular values of the Jacobian
+        double aPlusc = a + c;
+        double sqrtTerm = sqrt((a-c) * (a-c) + 4 * b * b);
+        double sigma1 = sqrt(0.5f * (aPlusc + sqrtTerm));
+        double sigma2 = sqrt(0.5f * (aPlusc - sqrtTerm));
+        
+        //Obtaining the distortion using energy formulations 
+        double area = ((v1 - v0).cross(v2 - v0).norm()) / 2.0f;
+        totalArea += area;
+        totalDistortion += area * calculateEnergy(sigma1, sigma2, 0);
+    }
+    return totalDistortion / totalArea;
 }
