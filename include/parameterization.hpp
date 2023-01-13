@@ -127,7 +127,7 @@ void getLSCMParameterization(const matXd &V, const vecXi &U, const matXi& F, mat
 
     //Fix points
     //We fix on the boundary to avoid triangle flips
-    vector<int> pinnedPoints = getPinnedPoints(V, U, 0);
+    vector<int> pinnedPoints = getPinnedPoints(V, U, 1);
     int p = pinnedPoints.size();
 
     //We design getPinnedPoints in such a way that the points are already sorted
